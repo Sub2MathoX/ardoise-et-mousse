@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+*.db
+*.db-*
+backups/
+.coverage
+.pytest_cache/
+preview.log
+work/
+tests/ardoise-test-*/

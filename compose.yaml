@@ -1,0 +1,73 @@
+name: ardoise-et-mousse
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDRESS:-0.0.0.0}:${APP_PORT:-8080}:8000"
+    environment:
+      DATABASE_URL: "postgresql://ardoise:${POSTGRES_PASSWORD:?Lancer scripts/configure.py}@db:5432/ardoise"
+      SECRET_KEY: "${SECRET_KEY:?Lancer scripts/configure.py}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?Lancer scripts/configure.py}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  db:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ardoise
+      POSTGRES_USER: ardoise
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Lancer scripts/configure.py}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ardoise -d ardoise"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  backup:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGUSER: ardoise
+      PGDATABASE: ardoise
+      PGPASSWORD: "${POSTGRES_PASSWORD:?Lancer scripts/configure.py}"
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup.sh:/usr/local/bin/backup.sh:ro
+    entrypoint: ["sh", "-c", "while true; do sh /usr/local/bin/backup.sh || echo 'ECHEC de sauvegarde' >&2; sleep 86400; done"]
+    depends_on:
+      db:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+volumes:
+  postgres_data:

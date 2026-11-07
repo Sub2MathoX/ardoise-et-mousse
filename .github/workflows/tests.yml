@@ -1,0 +1,39 @@
+name: Tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: test-only-compose-password
+      SECRET_KEY: test-only-compose-secret-with-at-least-32-characters
+      ADMIN_PASSWORD: test-only-admin-password
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_USER: ardoise
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: ardoise_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ardoise -d ardoise_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+      - run: node --test tests/frontend.test.cjs
+      - run: python -m unittest discover -s tests -v
+        env:
+          TEST_DATABASE_URL: postgresql://ardoise:test-only-password@localhost:5432/ardoise_test
+      - run: docker compose config --quiet
+      - run: docker compose build
+      - run: docker compose up -d --wait
+      - run: curl --fail http://localhost:8080/health
+      - if: always()
+        run: docker compose logs --tail=50
+      - if: always()
+        run: docker compose down
