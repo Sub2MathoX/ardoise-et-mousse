@@ -243,18 +243,21 @@ document.addEventListener('click',async(event)=>{
 });
 document.addEventListener('submit',async(event)=>{
   event.preventDefault();const form=event.target;if(busy)return;
+  // Un champ nommé "id" masque form.id : lire l’attribut du formulaire.
+  const formId=form.getAttribute('id');
   const data=fields(form), button=form.querySelector('[type="submit"]');
   if(button)button.disabled=true;
   try{
-    if(form.id==='custom-volume'){await serve(data.volume_cl);return;}
-    if(form.id==='login-form'){await api('/api/login',{password:data.password});await refresh();return;}
-    if(form.id==='profile-form')await mutate('/api/admin/profiles',{...data,position:Number(data.position),active:form.elements.active.checked});
-    else if(form.id==='keg-form')await mutate('/api/admin/kegs',{...data,quantity:Number(data.quantity||1)});
-    else if(form.id==='settings-form')await mutate('/api/admin/settings',data);
-    else if(form.id==='ledger-form')await mutate('/api/admin/ledger',data);
-    else if(form.id==='correction-form')await mutate('/api/admin/consumptions',{...data,cancel:form.elements.cancel?.checked||false});
-    else if(form.id==='assign-form')await mutate(`/api/admin/kegs/${data.id}/assign`,data);
-    else if(form.id==='switch-form')await mutate('/api/switch',{expected_keg_id:data.expected||null,next_keg_id:data.next||null});
+    if(formId==='custom-volume'){await serve(data.volume_cl);return;}
+    if(formId==='login-form'){await api('/api/login',{password:data.password});await refresh();return;}
+    if(formId==='profile-form')await mutate('/api/admin/profiles',{...data,position:Number(data.position),active:form.elements.active.checked});
+    else if(formId==='keg-form')await mutate('/api/admin/kegs',{...data,quantity:Number(data.quantity||1)});
+    else if(formId==='settings-form')await mutate('/api/admin/settings',data);
+    else if(formId==='ledger-form')await mutate('/api/admin/ledger',data);
+    else if(formId==='correction-form')await mutate('/api/admin/consumptions',{...data,cancel:form.elements.cancel?.checked||false});
+    else if(formId==='assign-form')await mutate(`/api/admin/kegs/${data.id}/assign`,data);
+    else if(formId==='switch-form')await mutate('/api/switch',{expected_keg_id:data.expected||null,next_keg_id:data.next||null});
+    else throw new Error('Formulaire non reconnu. Actualisez la page avant de réessayer.');
     closeModal();toast('C’est enregistré.');await refresh();
   }catch(e){formError(form,e.message);}
   finally{if(button)button.disabled=false;}

@@ -20,19 +20,20 @@ async function browser() {
   const elements = new Map(['#app','#dialog','#toast','#connection','#admin-body'].map(id=>[id,node()]));
   const stored = new Map();
   const calls = [];
+  const handlers = new Map();
   const sandbox={
     console,crypto:webcrypto,Intl,Date,AbortController,
     location:{pathname:'/'},
-    document:{querySelector:s=>elements.get(s),querySelectorAll:()=>[],addEventListener(){},createElement:node,activeElement:null},
+    document:{querySelector:s=>elements.get(s),querySelectorAll:()=>[],addEventListener:(type,handler)=>handlers.set(type,handler),createElement:node,activeElement:null},
     sessionStorage:{getItem:k=>stored.get(k)||null,setItem:(k,v)=>stored.set(k,v),removeItem:k=>stored.delete(k)},
     setTimeout:()=>1,clearTimeout(){},setInterval:()=>1,clearInterval(){},
-    FormData:class {},
+    FormData:class {constructor(form){return Object.entries(form.values);}},
   };
   sandbox.fetch=async(url,opts)=>{calls.push({url,opts});return {ok:true,status:200,json:async()=>structuredClone(fixture)};};
   const context=vm.createContext(sandbox);
   vm.runInContext(source,context);
   await new Promise(resolve=>setImmediate(resolve));
-  return {context,elements,stored,calls,run:code=>vm.runInContext(code,context),
+  return {context,elements,stored,calls,handlers,run:code=>vm.runInContext(code,context),
     setFetch:fn=>{context.fetch=async(url,opts)=>{calls.push({url,opts});return fn(url,opts);};}};
 }
 test('la tablette affiche les profils et masque les montants',async()=>{
@@ -40,6 +41,55 @@ test('la tablette affiche les profils et masque les montants',async()=>{
   const html=b.elements.get('#app').innerHTML;
   assert.match(html,/Qui prend un verre/);assert.match(html,/Invité/);
   assert.doesNotMatch(html,/€|balance_cents|cost_cents/);
+});
+
+function submissionForm(formId, values) {
+  const button={disabled:false};
+  const errors=[];
+  return {
+    // HTMLFormElement : un contrôle nommé id masque la propriété form.id.
+    // https://developer.mozilla.org/en-US/docs/Web/API/HTMLFormElement#issues_with_naming_elements
+    id: Object.hasOwn(values,'id') ? {name:'id',value:values.id} : formId,
+    values, errors, button,
+    getAttribute:name=>name==='id'?formId:null,
+    elements:{active:{checked:true},cancel:{checked:false}},
+    querySelector:selector=>selector==='[type="submit"]'?button:null,
+    prepend:error=>errors.push(error),
+  };
+}
+
+for (const [formId,values,url] of [
+  ['profile-form',{id:'',name:'Mathieu',color:'sage',position:'0'},'/api/admin/profiles'],
+  ['profile-form',{id:'existing-profile',name:'Invité',color:'sage',position:'1'},'/api/admin/profiles'],
+  ['keg-form',{id:'',name:'Blonde',volume_l:'6',cost_eur:'32.90',quantity:'2',purchased_on:'2026-11-07'},'/api/admin/kegs'],
+  ['keg-form',{id:'existing-keg',name:'Blonde',volume_l:'6',cost_eur:'30',purchased_on:'2026-11-07'},'/api/admin/kegs'],
+  ['correction-form',{id:'consumption',profile_id:'alice',volume_cl:'50',note:'Format corrigé'},'/api/admin/consumptions'],
+  ['assign-form',{id:'closed-keg',profile_id:'guest',note:'Verres offerts'},'/api/admin/kegs/closed-keg/assign'],
+]) {
+  test(`soumission ${formId} (${values.id||'création'}) : la requête part malgré le champ id`,async()=>{
+    const b=await browser();
+    const form=submissionForm(formId,values);
+    b.elements.get('#dialog').open=true;
+    await b.handlers.get('submit')({target:form,preventDefault(){}});
+    const writes=b.calls.filter(c=>c.opts.method==='POST');
+    assert.equal(writes.length,1,'Une confirmation doit correspondre à une écriture serveur.');
+    assert.equal(writes[0].url,url);
+    assert.equal(JSON.parse(writes[0].opts.body).id,values.id);
+    assert.ok(writes[0].opts.headers['Idempotency-Key']);
+    assert.equal(form.errors.length,0);
+    assert.equal(b.elements.get('#dialog').open,false);
+    assert.equal(form.button.disabled,false);
+  });
+}
+test('un formulaire inconnu ne doit jamais afficher une confirmation de sauvegarde',async()=>{
+  const b=await browser();
+  const form=submissionForm('unknown-form',{});
+  b.elements.get('#dialog').open=true;
+  await b.handlers.get('submit')({target:form,preventDefault(){}});
+  assert.equal(b.calls.filter(c=>c.opts.method==='POST').length,0);
+  assert.equal(b.elements.get('#dialog').open,true);
+  assert.equal(b.elements.get('#toast').textContent,'');
+  assert.equal(form.errors.length,1);
 });
 test('sélection puis formats configurables et champ libre',async()=>{
   const b=await browser();
